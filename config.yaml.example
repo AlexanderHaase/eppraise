@@ -1,0 +1,10 @@
+#
+# Configuration
+#
+
+# Ebay API config
+ebay:
+
+  # App ID
+  id: "Some-Ebay-generated-string"
+
