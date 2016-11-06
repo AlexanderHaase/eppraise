@@ -1,16 +1,69 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 from ebaysdk.finding import Connection as Finding
 from ebaysdk.exception import ConnectionError
 
 import itertools
+import functools
 import openpyxl
 import sys
 import re
 import yaml
 import argparse
 import logging
+import json
+import datetime
+from sqlalchemy.ext.declarative import declarative_base, declared_attr, as_declarative
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, create_engine
+from sqlalchemy.orm import relationship
 
 logger = logging.getLogger( __name__ )
+
+#
+# Setup SQL Schema
+#
+@as_declarative()
+class SQLBase( object ):
+	'''Common properties for all sql objects'''
+	@declared_attr
+	def __tablename__(cls):
+		return cls.__name__.lower()
+
+	id = Column( Integer, primary_key = True, autoincrement = True )
+
+
+class JSONProps( object ):
+	'''Mix-in for text<->json'''
+	
+	text = Column( String, nullable = False )
+
+	@property
+	def json( self ):
+		return json.loads( self.text )
+
+	@json.setter
+	def json( self, data ):
+		text = json.dumps( data )
+
+class Query( SQLBase ):
+	'''Saved watch for items'''
+	keywords = Column( String )
+
+class QueryResult( SQLBase, JSONProps ):
+	'''Record of executing a query. Future-proofing our data!'''
+	keywords = Column( String )
+	retrieved = Column( DateTime, default = datetime.datetime.utcnow, nullable = False )
+
+class Item( SQLBase, JSONProps ):
+	'''Record from ebay. We're watching completed items, so one per item is enough.'''
+	ebayID = Column( String, primary_key = True, nullable = False )
+
+	query_id = Column( Integer, ForeignKey( Query.id ), nullable = False )
+	query = relationship( Query, back_populates = "items" )
+
+	
+#
+# Ebay connections
+#
 
 class Estimate( object ):
 	'''
@@ -28,15 +81,15 @@ class Estimate( object ):
 
 	def sold( self ):
 		'''Fetch an iterator of sold items'''
-		return itertools.ifilter( (lambda item: item[ 'sellingStatus' ][ 'sellingState' ] == 'EndedWithSales' ), self.items )
+		return filter( (lambda item: item[ 'sellingStatus' ][ 'sellingState' ] == 'EndedWithSales' ), self.items )
 
 	def prices( self ):
 		'''Fetch an iterator of sold prices'''
-		return itertools.imap( (lambda item: item[ 'sellingStatus' ][ 'currentPrice' ][ 'value' ] ), self.sold() )
+		return map( (lambda item: item[ 'sellingStatus' ][ 'currentPrice' ][ 'value' ] ), self.sold() )
 
 	def mean( self ):
 		'''Mean sold price'''
-		(total, qty) = reduce( (lambda accum, price: ( accum[ 0 ] + float(price), accum[ 1 ] + 1.0 ) ), self.prices(), ( 0.0, 0.0 ) )
+		(total, qty) = functools.reduce( (lambda accum, price: ( accum[ 0 ] + float(price), accum[ 1 ] + 1.0 ) ), self.prices(), ( 0.0, 0.0 ) )
 		return total / qty if qty > 0 else None
 		
 
@@ -57,19 +110,19 @@ class Connection( object ):
 		'''Proof of concept method for dumping this to/from a file'''
 		wb = openpyxl.load_workbook( file )
 		sheet = wb.active
-		ioRange = itertools.izip( sheet[ inputRange ], sheet[ outputRange ] )
+		ioRange = zip( sheet[ inputRange ], sheet[ outputRange ] )
 		
 		def handleElement( ioElement ):
 			keys = re.sub( '(\s)', ' ', ioElement[ 0 ][ 0 ].value ).split()
-			filtered = itertools.imap( lambda key: re.sub( '(\W)', '', key ), keys )
-			key = ' '.join( itertools.ifilter( None, filtered ) )
+			filtered = map( lambda key: re.sub( '(\W)', '', key ), keys )
+			key = ' '.join( filter( None, filtered ) )
 			sys.stderr.write( key )
 			est = self.estimate( key )
 			mean = est.mean()
 			sys.stderr.write( ': {}\n'.format( mean ) )
 			ioElement[ 1 ][ 0 ].value = mean
 
-		reduce( lambda x,y: None, itertools.imap( handleElement, ioRange ) )
+		functools.reduce( lambda x,y: None, map( handleElement, ioRange ) )
 		wb.save( file )
 
 

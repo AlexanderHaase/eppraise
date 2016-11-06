@@ -1,4 +1,4 @@
-python-yaml
-python-openpyxl
-python-lxml
-python-setuptools
+python3-yaml
+python3-openpyxl
+python3-lxml
+python3-setuptools
