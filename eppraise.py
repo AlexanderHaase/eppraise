@@ -141,6 +141,10 @@ class Item( SQLBase, JSONProps ):
 
 	watches = relationship( Watch, back_populates = "items", secondary = associate_watch_item )
 
+	def url( self ):
+		return self.json[ 'viewItemURL' ]
+
+	@SQLBase.serialize
 	def sold( self ):
 		return self.json[ 'sellingStatus' ][ 'sellingState' ] == 'EndedWithSales'
 
@@ -164,6 +168,12 @@ class Database( object ):
 		self.sessionMaker = sessionmaker( self.engine )
 		base.metadata.create_all( self.engine )
 
+	def refresh( self ):
+		self.engine = create_engine( self.dbURL )
+		self.sessionMaker = sessionmaker( self.engine )
+		base.metadata.create_all( self.engine )
+		
+
 	class SessionContext( object ):
 		def __init__( self, db ):
 			self.db = db
@@ -180,7 +190,28 @@ class Database( object ):
 				self.activeSession.rollback()
 			else:
 				self.activeSession.commit()
+			self.activeSession.close()
 			del self.activeSession
+
+		def refresh( self ):
+			self.activeSession.rollback()
+			self.activeSession.close()
+			self.activeSession = self.db.sessionMaker()
+
+		def upsert( self, cls, **kwargs ):
+			selectKeys = filter( lambda column: column.unique or column.primary_key, cls.__table__.columns )
+			queryArgs = map( lambda column: getattr( cls, column.name ) == kwargs[ column.name ] if column.name in kwargs else None, selectkeys )
+
+			try:
+				obj = session().query( cls ).filter( *tuple(queryArgs) ).one()
+				apply( lambda item: setattr( obj, item[ 0 ], item[ 1 ] ), kwargs.items() )
+
+			except NoResultFound:
+				obj = cls( **kwargs )
+				session.add( obj )
+
+			return obj
+			
 
 		def commitIfNew( self, obj ):
 			try:
@@ -189,9 +220,9 @@ class Database( object ):
 				logger.info( "Added new item: {} {}".format( obj.__class__.__name__, obj.dict() ) )
 				return True
 
-			except IntegrityError:
+			except IntegrityError as e:
 				self.activeSession.rollback()
-				logger.info( "Already exists: {} {}".format( obj.__class__.__name__, obj.dict() ) )
+				logger.info( "Already exists: {} {}\n{}".format( obj.__class__.__name__, obj.dict(), e ) )
 				return False
 
 	def context( self ):
@@ -338,14 +369,27 @@ if __name__ == '__main__':
 				context.commitIfNew( query )
 				
 				# Commit and filter new items
-				toUpdate = filter( lambda item: not context.commitIfNew( item ), filter( Item.sold, Item.fromQuery( query ) ) )
+				toUpdate = itertools.filterfalse( context.commitIfNew, filter( Item.sold, Item.fromQuery( query ) ) )
 
-				#def mergeItems( item ):
-				#	prior = context.session().query( Item ).filter( Item.ebayID == item.ebayID ).one()
+				def updateItem( item ):
+					logger.info( "Update: {} {}".format( item.__class__.__name__, item.dict() ) )
+					for attempt in range( 10 ):
+						try:
+							prior = context.session().query( Item ).filter( Item.ebayID == item.ebayID ).one()
+							prior.watches.extend( item.watches )
+						except NoResultFound:
+							logger.warning( "Failed attempt {}: {} {}".format( attempt, item.__class__.__name__, item.dict() ) )
+							try:
+								context.refresh()
+								logger.info( "Refreshed session...." )
+								context.session().add( item )
+								context.session().commit()
+							except IntegrityError as e:
+								logger.warning( e )
 					
 
 				# Update existing items
-				#apply( lambda item: context.session().query( Item ).filter( Item.ebayID == item.ebayID ).one().watches.extend( item.watches ), toUpdate )
+				apply( updateItem, toUpdate )
 
 
 
