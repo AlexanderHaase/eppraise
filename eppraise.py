@@ -450,19 +450,32 @@ if __name__ == '__main__':
 	elif args.command == 'web':
 		app = Flask( __name__ )
 
+		def no_cache( func ):
+			@functools.wraps( func )
+			def wrapper( *args, **kwargs ):
+				response = func( *args, **kwargs )
+				if isinstance( response, str ):
+					response = make_response( response, 200 )
+				response.headers[ 'Cache-Control' ] = 'no-cache, no-store, must-revalidate'
+				response.headers[ 'Pragma' ] = 'no-cache'
+				return response
+
+			return wrapper
+				
+
 		def serialize( iterator, status = 200 ):
 			response = make_response( json.dumps( list( map( SQLBase.dict, iterator ) ) ), status )
 			response.headers[ 'Content-Type' ] = 'appliction/json'
-			response.headers[ 'Cache-Control' ] = 'no-cache, no-store, must-revalidate'
-			response.headers[ 'Pragma' ] = 'no-cache'
 			return response
 
 		@app.route( '/watch' )
+		@no_cache
 		@db.context()
 		def watch( context ):
 			return serialize( context.session().query( Watch ).all() )
 
 		@app.route( '/watch/<int:watchId>/items' )
+		@no_cache
 		@db.context()
 		def watchItems( watchId, context ):
 			return serialize( context.session().query( Watch ).filter( Watch.id == watchId ).one().items )
@@ -470,6 +483,11 @@ if __name__ == '__main__':
 		@app.route( '/' )
 		def index():
 			return render_template( 'index.html' )
+
+		@app.route( '/jsonp/<name>' )
+		@no_cache
+		def jsonp( name ):
+			return render_template( name )
 
 		app.run( args.host, port = args.port, debug = True )
 
