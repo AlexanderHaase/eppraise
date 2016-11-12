@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+	<head>
+		<title>Eppraise Web Interface</title>
+
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"></link>
+
+		<script type="text/javascript" src="https://code.jquery.com/jquery-3.1.1.slim.min.js"></script>
+		<script type="text/javascript" src="https://d3js.org/d3.v4.min.js"></script>
+		<script type="text/javascript" src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+		<script type="text/javascript" src="/jsonp/index.js"></script>
+	</head>
+	<body>
+		<nav class="navbar navbar-inverse">
+			<div class="container-fluid">
+				<div class="navbar-header">
+					<a class="navbar-brand" href="#">Eppraise</a>
+				</div><!-- .navbar-header -->
+			</div><!-- .container-fluid -->
+		</nav><!-- .navbar -->
+		<div class="container">
+			<div class="row">
+				<div class="col-sm-6" >
+					<div class="panel panel-default">
+						<div class="panel-heading">
+							Ebay Watches
+						</div><!-- .panel-header -->
+						<table class="table" id="watch-table">
+							<tr>
+								<td style="text-align:center"><italic>Loading...</italic></td>
+							</tr>
+						</table><!-- #watch-table -->
+					</div><!-- .panel -->
+				</div> <!-- .col-sm-6 -->
+				<div class="col-sm-6" >
+					<div class="panel panel-default">
+						<div class="panel-heading">
+							Watch Details
+						</div><!-- .panel-header -->
+						<div class="panel-body" id="watch-graph">
+							<h1 style="text-align:center"><small>Click "Load" to examine a watch</small></h1>
+						</div>
+					</div><!-- .panel -->
+				</div> <!-- .col-sm-6 -->
+			</div> <!-- .row -->
+		</div> <!-- .container -->
+	</body>
+</html>
