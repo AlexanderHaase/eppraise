@@ -68,8 +68,8 @@ class SQLBase( object ):
 		attrs = map( functools.partial( getattr, self ), dir( self ) )
 		funcs = filter( lambda attr: hasattr( attr, '__serialize__' ) and attr.__serialize__, attrs )
  
-		result = { key: getattr( self, key ) for key in keys }
-		result.update( { func.__name__: func() for func in funcs } )
+		result = collections.OrderedDict( map( lambda key: (key, getattr( self, key )), keys ) )
+		result.update( collections.OrderedDict( map( lambda func: (func.__name__, func()), funcs ) ) )
 		return result
 
 	def serialize( func ):
