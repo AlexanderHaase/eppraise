@@ -13,6 +13,7 @@ import logging
 import json
 import datetime
 import collections
+from flask import Flask, redirect, request, render_template, make_response
 from sqlalchemy.ext.declarative import declarative_base, declared_attr, as_declarative
 from sqlalchemy import Table, Column, Integer, String, DateTime, ForeignKey, Boolean, create_engine
 from sqlalchemy.orm import relationship, sessionmaker
@@ -106,17 +107,23 @@ class Watch( SQLBase ):
 
 	items = relationship("Item", back_populates="watches", secondary = associate_watch_item )
 	queries = relationship("Query", back_populates="watch")
+
+	@SQLBase.serialize
+	def estimate( self ):
+		'''Mean sold price'''
+		(total, qty) = functools.reduce( (lambda accum, item: ( accum[ 0 ] + float(item.price()), accum[ 1 ] + 1.0 ) ), self.items, ( 0.0, 0.0 ) )
+		return total / qty if qty > 0 else None
 		
 	@classmethod
-	def queryAll( cls, session, connection ):
-		activeWatches = session.query( cls ).filter( cls.enabled == True ).all()
-		return map( functools.partial( Query.fromWatch, connection ), activeWatches )
+	def queryAll( cls, context, connection ):
+		activeWatches = context.session().query( cls ).filter( cls.enabled == True ).all()
+		return map( functools.partial( Query.fromWatch, context, connection ), activeWatches )
 
 	@classmethod
-	def fromFile( cls, filePath, inputRange ):
+	def fromFile( cls, context, filePath, inputRange ):
 		wb = openpyxl.load_workbook( filePath )
 		sheet = wb.active
-		return map( lambda cell: Watch( keywords = cell.value ), itertools.chain.from_iterable( sheet[ inputRange ] ) )
+		return map( lambda cell: context.upsert( Watch, keywords = cell.value ), itertools.chain.from_iterable( sheet[ inputRange ] ) )
 
 
 class Query( SQLBase, JSONProps ):
@@ -127,11 +134,11 @@ class Query( SQLBase, JSONProps ):
 	keywords = Column( String, nullable = False )
 
 	@classmethod
-	def fromWatch( cls, connection, watch ):
+	def fromWatch( cls, context, connection, watch ):
 		'''Create a query from a watch'''
 		keywords = scrub( watch.keywords )
 		result = connection.query( keywords )
-		return Query( keywords = keywords, watch = watch, json = result.dict() )
+		return context.upsert( cls, keywords = keywords, watch = watch, json = result.dict() )
 
 
 
@@ -141,6 +148,11 @@ class Item( SQLBase, JSONProps ):
 
 	watches = relationship( Watch, back_populates = "items", secondary = associate_watch_item )
 
+	@SQLBase.serialize
+	def date( self ):
+		return self.json[ 'listingInfo' ][ 'endTime' ]
+
+	@SQLBase.serialize
 	def url( self ):
 		return self.json[ 'viewItemURL' ]
 
@@ -155,10 +167,10 @@ class Item( SQLBase, JSONProps ):
 
 	
 	@classmethod
-	def fromQuery( cls, query ):
+	def fromQuery( cls, context, query ):
 		'''Creates NEW objects from query'''
 		items = query.json[ 'searchResult' ].get( 'item', tuple() )
-		return map( lambda item: Item( watches = [ query.watch ], json = item, ebayID = item['itemId'] ), items )
+		return map( lambda item: context.upsert( cls, watches = [ query.watch ], json = item, ebayID = item['itemId'] ), items )
 
 
 class Database( object ):
@@ -172,7 +184,6 @@ class Database( object ):
 		self.engine = create_engine( self.dbURL )
 		self.sessionMaker = sessionmaker( self.engine )
 		base.metadata.create_all( self.engine )
-		
 
 	class SessionContext( object ):
 		def __init__( self, db ):
@@ -180,6 +191,15 @@ class Database( object ):
 
 		def session( self ):
 			return self.activeSession
+
+		def __call__( self, func, key = 'context' ):
+			'''decorator'''
+			@functools.wraps( func )
+			def wrapper( *args, **kwargs ):
+				with self:
+					kwargs[ key ] = self
+					return func( *args, **kwargs )
+			return wrapper
 
 		def __enter__( self ):
 			self.activeSession = self.db.sessionMaker()
@@ -198,17 +218,39 @@ class Database( object ):
 			self.activeSession.close()
 			self.activeSession = self.db.sessionMaker()
 
+		@staticmethod
+		def identifyingColumns( cls ):
+			return filter( lambda column: column.unique or column.primary_key, cls.__table__.columns )
+
+		@classmethod
+		def queryArgs( this, cls, kwargs ):
+			present = filter( lambda column: column.name in kwargs, this.identifyingColumns( cls ) )
+			return map( lambda column: getattr( cls, column.name ) == kwargs[ column.name ], present )
+
+		@staticmethod
+		def updateKey( obj, key, value ):
+			if key in obj.__class__.__table__.columns:
+				setattr( obj, key, value )
+			elif hasattr( obj, key ) and isinstance( getattr( obj, key ), list ):
+				getattr( obj, key ).extend( value )
+			else:
+				setattr( obj, key, value )
+
 		def upsert( self, cls, **kwargs ):
-			selectKeys = filter( lambda column: column.unique or column.primary_key, cls.__table__.columns )
-			queryArgs = map( lambda column: getattr( cls, column.name ) == kwargs[ column.name ] if column.name in kwargs else None, selectkeys )
-
 			try:
-				obj = session().query( cls ).filter( *tuple(queryArgs) ).one()
-				apply( lambda item: setattr( obj, item[ 0 ], item[ 1 ] ), kwargs.items() )
+				queryArgs = tuple(self.queryArgs( cls, kwargs) )
 
-			except NoResultFound:
+				if len( queryArgs ) == 0:
+					raise KeyError( queryArgs )
+
+				obj = self.session().query( cls ).filter( *queryArgs ).one()
+				logger.info( "Already exists: {} {}".format( obj.__class__.__name__, obj.dict() ) )
+				apply( lambda item: self.updateKey( obj, item[ 0 ], item[ 1 ] ), kwargs.items() )
+
+			except (NoResultFound, KeyError):
 				obj = cls( **kwargs )
-				session.add( obj )
+				self.session().add( obj )
+				logger.info( "Added new item: {} {}".format( obj.__class__.__name__, obj.dict() ) )
 
 			return obj
 			
@@ -323,6 +365,12 @@ if __name__ == '__main__':
 	queryParser = subparsers.add_parser( "update", help = "Update all active watches" )
 	queryParser.add_argument('-c','--config', default = "./config.yaml", help = "Configuration for ebay API" )
 
+	itemParser = subparsers.add_parser( "item" )
+
+	webParser = subparsers.add_parser( "web" )
+	webParser.add_argument( '-a', '--host', default = "0.0.0.0", help = "Host IP address for binding server" )
+	webParser.add_argument( '-p', '--port', default = "5000", help = "Host port for binding server", type = int )
+
 	#todo webParser..
 
 	# parse args
@@ -338,7 +386,31 @@ if __name__ == '__main__':
 
 	if args.command == 'xlsx':
 		with db.context() as context:
-			apply( context.commitIfNew, Watch.fromFile( args.spreadsheet, args.input_range ) )
+
+			def updateWatch( inputCell, outputCell ):
+				watch = context.upsert( Watch, keywords = inputCell.value )
+				if outputCell:
+					outputCell.value = watch.estimate()
+
+
+			workbook = openpyxl.load_workbook( args.spreadsheet )
+			sheet = workbook.active
+
+			inputCells = itertools.chain.from_iterable( sheet[ args.input_range ] )
+
+			if args.output_range:
+				outputCells =  itertools.chain.from_iterable( sheet[ args.output_range ] )
+			else:
+				outputCells = itertools.repeat( None )
+
+			consume( itertools.starmap( updateWatch, zip( inputCells, outputCells ) ) )
+
+			workbook.save( args.spreadsheet )
+
+			#map( lambda cell: context.upsert( Watch, keywords = cell.value ), itertools.chain.from_iterable( sheet[ inputRange ] ) )
+			
+
+			#watches = Watch.fromFile( context, args.spreadsheet, args.input_range )
 			# TODO output range
 
 	elif args.command == 'watch':
@@ -365,31 +437,41 @@ if __name__ == '__main__':
 
 		with db.context() as context:
 
-			for query in Watch.queryAll( context.session(), con ):
-				context.commitIfNew( query )
+			for query in Watch.queryAll( context, con ):
 				
 				# Commit and filter new items
-				toUpdate = itertools.filterfalse( context.commitIfNew, filter( Item.sold, Item.fromQuery( query ) ) )
+				apply( context.session().expunge, itertools.filterfalse( Item.sold, Item.fromQuery( context, query ) ) )
 
-				def updateItem( item ):
-					logger.info( "Update: {} {}".format( item.__class__.__name__, item.dict() ) )
-					for attempt in range( 10 ):
-						try:
-							prior = context.session().query( Item ).filter( Item.ebayID == item.ebayID ).one()
-							prior.watches.extend( item.watches )
-						except NoResultFound:
-							logger.warning( "Failed attempt {}: {} {}".format( attempt, item.__class__.__name__, item.dict() ) )
-							try:
-								context.refresh()
-								logger.info( "Refreshed session...." )
-								context.session().add( item )
-								context.session().commit()
-							except IntegrityError as e:
-								logger.warning( e )
-					
+	elif args.command == 'item':
+		with db.context() as context:
+			apply( sys.stdout.write, map( "{}\n".format, map( SQLBase.dict, context.session().query( Item ).all() ) ) )
 
-				# Update existing items
-				apply( updateItem, toUpdate )
+
+	elif args.command == 'web':
+		app = Flask( __name__ )
+
+		def serialize( iterator, status = 200 ):
+			response = make_response( json.dumps( list( map( SQLBase.dict, iterator ) ) ), status )
+			response.headers[ 'Content-Type' ] = 'appliction/json'
+			response.headers[ 'Cache-Control' ] = 'no-cache, no-store, must-revalidate'
+			response.headers[ 'Pragma' ] = 'no-cache'
+			return response
+
+		@app.route( '/watch' )
+		@db.context()
+		def watch( context ):
+			return serialize( context.session().query( Watch ).all() )
+
+		@app.route( '/watch/<int:watchId>/items' )
+		@db.context()
+		def watchItems( watchId, context ):
+			return serialize( context.session().query( Watch ).filter( Watch.id == watchId ).one().items )
+
+		@app.route( '/' )
+		def index():
+			return render_template( 'index.html' )
+
+		app.run( args.host, port = args.port, debug = True )
 
 
 
