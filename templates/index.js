@@ -70,10 +70,10 @@ $( document ).ready( function() {
 			autoHeight( '#watch-svg' );
 
 			var xValue = getProp( 'date' );
-			var yValue = function( element ) { return Number( element.price ); };
+			var yValue = getProp( 'price' );
 
 			var radius = 4;
-			var padding = 50;
+			var padding = 20;
 
 			var dom = $( '#watch-svg' );
 
@@ -86,34 +86,31 @@ $( document ).ready( function() {
 
 			var size = {
 				width: dom.width() - margin.left - margin.right,
-				height: dom.width() - margin.top - margin.bottom,
+				height: dom.height() - margin.top - margin.bottom,
 			};
 
 			var scale = {
-				x: d3.scaleLinear()
-					.domain( [ d3.min( this.data, xValue ), d3.max( this.data, xValue ) ] )
-					.range( [ 0, size.width ] ),
-				y: d3.scaleTime()
-					.domain( [ d3.min( this.data, yValue ), d3.max( this.data, yValue ) ] )
-					.range( [ size.height, 0 ] ),
+				x: d3.scaleTime()
+					.range( [ 0, size.width ] )
+					.domain( d3.extent( this.data, xValue ) ),
+				y: d3.scaleLinear()
+					.range( [ size.height, 0 ] )
+					.domain( d3.extent( this.data, yValue ) )
 			};
 
-			var axis = {
-				x: d3.axisBottom()
-					.scale( scale.x ),
-				y: d3.axisLeft()
-					.scale( scale.y ),
-			};
+			scale.y.tickFormat( currency );
+			//scale.x.ticks( d3.timeWeek.every( 1 ) );
+			//scale.x.tickFormat( d3.isoFormat );
 
 			var root = svg.append( 'g'  )
 				.attr( 'transform', 'translate(' + margin.left + ',' + margin.top + ')' );
 
 			root.append( 'g' )
 				.attr( 'transform', 'translate(0,' + size.height + ')' )
-				.call( axis.x );
+				.call( d3.axisBottom( scale.x ) );
 
 			root.append( 'g' )
-				.call( axis.y );
+				.call( d3.axisLeft( scale.y ) );
 
 			var radius = 4;
 
@@ -124,18 +121,31 @@ $( document ).ready( function() {
 				.enter()
 				.append( 'g' )
 				.attr( 'transform', function( data ) { return 'translate(' + scale.x( xValue( data ) ) + ',' + scale.y( yValue( data ) ) + ')'; } )
-				.on( 'click', function( data ) {
+				.on( 'click', function( data ) 
+				{
 					window.open(data.url, '_blank').focus();
 				} )
-				.on( 'mouseover', function( data ) {
-					var circle = d3.select( this ).select( 'circle' );
+				.on( 'mouseover', function( data ) 
+				{
+					d3.select( this )
+						.select( 'circle' )
+						.attr( 'r', radius * 2 )
+						.attr( 'fill', 'orange' );
+						
 					d3.select( this )
 						.append( 'text' )
-						.attr( 'dx', radius )
+						.attr( 'dx', radius * 2 )
 						.attr( 'dy', radius * 2 )
-						.text( currency( data.price ) + ' ' + data.date );
+						.attr( 'style', 'pointer-events: none; font: 12px sans-serif;' )
+						.text( currency( data.price ) + ' ' + d3.isoFormat( data.date ) );
 				} )
-				.on( 'mouseout', function( data ) {
+				.on( 'mouseout', function( data ) 
+				{
+					d3.select( this )
+						.select( 'circle' )
+						.attr( 'r', radius )
+						.attr( 'fill', 'black' );
+
 					d3.select( this )
 						.selectAll( 'text' )
 						.remove();

@@ -111,7 +111,7 @@ class Watch( SQLBase ):
 	@SQLBase.serialize
 	def estimate( self ):
 		'''Mean sold price'''
-		(total, qty) = functools.reduce( (lambda accum, item: ( accum[ 0 ] + float(item.price()), accum[ 1 ] + 1.0 ) ), self.items, ( 0.0, 0.0 ) )
+		(total, qty) = functools.reduce( (lambda accum, item: ( accum[ 0 ] + item.price(), accum[ 1 ] + 1.0 ) ), self.items, ( 0.0, 0.0 ) )
 		return total / qty if qty > 0 else None
 		
 	@classmethod
@@ -163,7 +163,7 @@ class Item( SQLBase, JSONProps ):
 	@SQLBase.serialize
 	def price( self ):
 		'''Fetch an iterator of sold prices'''
-		return self.json[ 'sellingStatus' ][ 'currentPrice' ][ 'value' ]
+		return float( self.json[ 'sellingStatus' ][ 'currentPrice' ][ 'value' ] )
 
 	
 	@classmethod
