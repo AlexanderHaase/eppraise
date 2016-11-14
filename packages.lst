@@ -2,3 +2,5 @@ python3-yaml
 python3-openpyxl
 python3-lxml
 python3-setuptools
+python3-sqlalchemy
+python3-flask
