@@ -8,9 +8,9 @@ working with data. It also provides several command line features for high
 level usage.
 
 It also has a web UI for examining data: 
-![alt text][WebUI]
+![Screenshot of web UI][WebUI]
 
-[WebUI]: https://github.com/AlexanderHaase/eppraise/master/EppraiseWebUI.png "Screenshot of web UI"
+[WebUI]: https://github.com/AlexanderHaase/eppraise/raw/master/EppraiseWebUI.png "Screenshot of web UI"
 
 ## Install ##
 Eppraise is python3-based. Required debian packages are listed in packages.lst.
