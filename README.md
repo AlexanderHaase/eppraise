@@ -24,7 +24,7 @@ Configuration Steps:
   - Place an App ID in the config file: `ebay: { id: "my-app-id-key-9876543210" }`
 
 ## Usage ##
-As an application, eppraise expresses several subcommands, simiarl to git and
+As an application, eppraise expresses several subcommands, similar to git and
 svn. Commands faciliate administrating watches, bulk IO, collecting data, and
 a local web server. Peruse it's help documentation for details around each 
 command.
@@ -71,3 +71,8 @@ Manually specify configuration, database, or verbosity:
 eppraise.py --verbose=DEBUG --config=myConfig.yaml --database-url=myDB.db [SUBCOMMAND] ...
 ```
 
+### Web UI ###
+Currently the web UI offers a read-only view of current watches: An estimate, id, and status of each watch, and a scatter plot of matching items. Hover over a plot item to see it's sell price and date, click to open the item's ebay page(if still available).
+
+## TODO ##
+Improve subcommand and web functionality!
