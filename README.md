@@ -7,6 +7,11 @@ listings. It uses the python-ebay API to connect and query data, SQL storage
 working with data. It also provides several command line features for high
 level usage.
 
+It also has a web UI for examining data: 
+![alt text][WebUI]
+
+[WebUI]: https://github.com/AlexanderHaase/eppraise/master/EppraiseWebUI.png "Screenshot of web UI"
+
 ## Install ##
 Eppraise is python3-based. Required debian packages are listed in packages.lst.
 
@@ -68,7 +73,7 @@ eppraise.py web
 
 Manually specify configuration, database, or verbosity:
 ```
-eppraise.py --verbose=DEBUG --config=myConfig.yaml --database-url=myDB.db [SUBCOMMAND] ...
+eppraise.py --verbose=DEBUG --config=myConfig.yaml --database-url=sqlite:///myDB.db [SUBCOMMAND] ...
 ```
 
 ### Web UI ###
